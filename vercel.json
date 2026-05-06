@@ -1,0 +1,24 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
+  "installCommand": "npm install",
+  "functions": {
+    "app/api/papers/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/wiki/query/route.ts": {
+      "maxDuration": 30
+    }
+  },
+  "env": {
+    "NEXT_PUBLIC_SUPABASE_URL": "@supabase-url",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "@supabase-anon-key",
+    "SUPABASE_SERVICE_ROLE_KEY": "@supabase-service-role-key",
+    "OPENROUTER_API_KEY": "@openrouter-api-key",
+    "GITHUB_TOKEN": "@github-token",
+    "REDIS_URL": "@redis-url",
+    "ADMIN_PIN": "@admin-pin",
+    "SIMILARITY_THRESHOLD": "0.75"
+  }
+}

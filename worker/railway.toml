@@ -1,0 +1,16 @@
+[build]
+builder = "nixpacks"
+buildCommand = "npm install"
+
+[deploy]
+startCommand = "npm run worker"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+
+[[services]]
+name = "knowledge-graph-worker"
+
+[services.healthcheck]
+path = "/health"
+timeout = 10
+interval = 30
