@@ -8,6 +8,7 @@
     "dev": "ts-node --project tsconfig.json index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
+    "worker": "npm run build && npm run start",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
