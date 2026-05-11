@@ -107,6 +107,7 @@ function NodeDetailPanel({
 export default function KioskPage() {
   const [lang, setLang] = useState<'es' | 'en'>('es')
   const [selectedNode, setSelectedNode] = useState<KGNodeData | null>(null)
+  const [stats, setStats] = useState(MOCK_STATS)
   const graphHandle = useRef<KnowledgeGraphHandle | null>(null)
 
   const handleNodeSelect = useCallback((node: KGNodeData | null) => {
@@ -173,8 +174,8 @@ export default function KioskPage() {
       </header>
 
       {/* ── Canvas del grafo (80% del alto) ─────────────────── */}
-      <main className="relative flex-1 min-h-0">
-        <KnowledgeGraph lang={lang} onNodeSelect={handleNodeSelect} handleRef={graphHandle} />
+      <main className="relative flex-1 min-h-0 overflow-hidden">
+        <KnowledgeGraph lang={lang} onNodeSelect={handleNodeSelect} handleRef={graphHandle} onStatsChange={setStats} />
 
         {/* Panel de detalle de nodo seleccionado */}
         {selectedNode && (
@@ -188,7 +189,7 @@ export default function KioskPage() {
 
       {/* ── Footer 80px ──────────────────────────────────────── */}
       <footer
-        className="flex-shrink-0 z-20"
+        className="flex-shrink-0 relative z-30"
         style={{
           height: 80,
           background: 'rgba(8,15,26,0.85)',
@@ -197,9 +198,9 @@ export default function KioskPage() {
         }}
       >
         <GraphStats
-          papers={MOCK_STATS.papers}
-          relations={MOCK_STATS.relations}
-          concepts={MOCK_STATS.concepts}
+          papers={stats.papers}
+          relations={stats.relations}
+          concepts={stats.concepts}
           isProcessing={false}
           lang={lang}
         />

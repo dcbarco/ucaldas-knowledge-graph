@@ -1,13 +1,19 @@
-// Paso 3 — Extracción de conceptos con LLM                   [30%]
-// Producción: OpenRouter → llama-3.3-70b-instruct:free
-// Prompt del spec §14 → JSON con methods, themes, keywords, etc.
-
-import { log, mockDB } from '../lib/logger'
+// Paso 3 — Extracción de conceptos con LLM  [30%]
+import OpenAI from 'openai'
+import { supabase } from '../lib/supabase'
+import { log } from '../lib/logger'
 import type { ProgressUpdater, ExtractedConcepts } from '../lib/types'
 
-const delay = (ms: number) => new Promise(r => setTimeout(r, ms))
+const MAX_CHARS = 6000
 
-const MAX_CHARS = parseInt(process.env.MAX_TEXT_CHARS_FOR_EXTRACTION ?? '6000')
+const FALLBACK: ExtractedConcepts = {
+  summary_es: 'Paper académico de la Universidad de Caldas.',
+  summary_en: 'Academic paper from Universidad de Caldas.',
+  methods: [],
+  themes: [],
+  keywords: [],
+  field: 'Investigación',
+}
 
 export async function extractConcepts(
   paperId: string,
@@ -17,40 +23,55 @@ export async function extractConcepts(
   await update(25, 'Extrayendo conceptos con LLM')
 
   const truncated = fullText.slice(0, MAX_CHARS)
-  log(paperId, `Llamando a LLM para extracción (${truncated.length} chars de contexto)`)
+  log(paperId, `Llamando LLM (${truncated.length} chars)`)
 
-  // PRODUCCIÓN: prompt del spec §14
-  // const system = `Eres un analizador de papers académicos. Responde ÚNICAMENTE en JSON válido.`
-  // const user = `Analiza este paper y extrae: summary_es, summary_en, methods[], themes[], keywords[], field`
-  // const client = new OpenAI({ baseURL: process.env.OPENROUTER_BASE_URL, apiKey: process.env.OPENROUTER_API_KEY,
-  //   defaultHeaders: { 'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL, 'X-Title': 'Knowledge Graph UC' } })
-  // const res = await client.chat.completions.create({
-  //   model: process.env.LLM_MODEL_STANDARD ?? 'meta-llama/llama-3.3-70b-instruct:free',
-  //   messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-  //   temperature: 0.1,
-  // })
-  // const concepts = JSON.parse(res.choices[0].message.content ?? '{}') as ExtractedConcepts
-  mockDB(paperId, `openrouter.chat.completions.create({ model: 'llama-3.3-70b-instruct:free', ... })`)
-  await delay(1200) // simula latencia LLM
+  const client = new OpenAI({
+    baseURL: process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1',
+    apiKey:  process.env.OPENROUTER_API_KEY ?? '',
+    defaultHeaders: {
+      'HTTP-Referer': 'https://ucaldas-kg.vercel.app',
+      'X-Title': 'Knowledge Graph UC',
+    },
+  })
 
-  const mockConcepts: ExtractedConcepts = {
-    summary_es: `[MOCK] Este paper examina metodologías para el análisis de comunidades rurales en Caldas.`,
-    summary_en: `[MOCK] This paper examines methodologies for rural community analysis in Caldas.`,
-    methods:    ['análisis de redes sociales', 'etnografía digital', 'metodología mixta'],
-    themes:     ['comunidades rurales', 'sostenibilidad', 'tecnología rural'],
-    keywords:   ['Caldas', 'redes sociales', 'resiliencia', 'capital social', 'Colombia', 'ruralidad'],
-    field:      'Ciencias Sociales',
+  const system = `Eres un analizador de papers académicos. Responde ÚNICAMENTE con JSON válido, sin markdown ni explicaciones.`
+  const user = `Analiza este texto de un paper académico y responde con este JSON exacto:
+{
+  "summary_es": "resumen en español en 2-3 oraciones",
+  "summary_en": "summary in English in 2-3 sentences",
+  "methods": ["método1", "método2"],
+  "themes": ["tema1", "tema2"],
+  "keywords": ["kw1", "kw2", "kw3"],
+  "field": "campo académico principal"
+}
+
+TEXTO:
+${truncated}`
+
+  let concepts = FALLBACK
+  try {
+    const res = await client.chat.completions.create({
+      model: process.env.MODEL_STANDARD ?? 'meta-llama/llama-3.3-70b-instruct:free',
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user',   content: user },
+      ],
+      temperature: 0.1,
+      max_tokens: 600,
+    })
+    const raw = (res.choices[0].message.content ?? '').replace(/```json\n?|\n?```/g, '').trim()
+    concepts = JSON.parse(raw) as ExtractedConcepts
+  } catch (err) {
+    log(paperId, `LLM/parse error, usando fallback: ${err}`)
   }
 
-  await update(30, 'Conceptos extraídos — persistiendo en papers')
-  log(paperId, `Conceptos: ${mockConcepts.methods.length} métodos, ${mockConcepts.themes.length} temas, ${mockConcepts.keywords.length} keywords`)
+  await update(30, 'Conceptos extraídos — guardando resumen')
+  await supabase.from('papers').update({
+    abstract_es: concepts.summary_es,
+    abstract_en: concepts.summary_en,
+    concepts:    { methods: concepts.methods, themes: concepts.themes, keywords: concepts.keywords },
+  }).eq('id', paperId)
 
-  // PRODUCCIÓN:
-  // await supabase.from('papers').update({
-  //   abstract_es: concepts.summary_es, abstract_en: concepts.summary_en,
-  //   concepts: { methods: concepts.methods, themes: concepts.themes, keywords: concepts.keywords }
-  // }).eq('id', paperId)
-  mockDB(paperId, `papers.update({ abstract_es, abstract_en, concepts: {...} }).eq('id', '${paperId}')`)
-
-  return mockConcepts
+  log(paperId, `Conceptos: ${concepts.methods.length} métodos, ${concepts.themes.length} temas, ${concepts.keywords.length} keywords`)
+  return concepts
 }

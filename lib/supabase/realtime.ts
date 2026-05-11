@@ -35,15 +35,18 @@ export interface ConceptNodeRow {
 
 type Unsubscribe = () => void
 
+// Unique suffix prevents "cannot add callbacks after subscribe()" when the
+// singleton Supabase client returns an already-subscribed channel by name
+// (happens with React StrictMode double-invoking effects in development).
+function uid() { return Math.random().toString(36).slice(2) }
+
 // ── Subscribe to relations that get approved ─────────────────────────────────
-// Fires whenever a row in `relations` is UPDATEd to status='approved'.
-// The Realtime replication must be enabled on the `relations` table (002_realtime.sql).
 export function subscribeToApprovedRelations(
   onApproved: (relation: RelationRow) => void
 ): Unsubscribe {
   const client = createClient()
   const channel = client
-    .channel('kg:relations')
+    .channel(`kg:relations:${uid()}`)
     .on(
       'postgres_changes',
       { event: 'UPDATE', schema: 'public', table: 'relations' },
@@ -65,7 +68,7 @@ export function subscribeToProcessingJobs(
 ): Unsubscribe {
   const client = createClient()
   const channel = client
-    .channel('kg:processing_jobs')
+    .channel(`kg:processing_jobs:${uid()}`)
     .on(
       'postgres_changes',
       { event: 'UPDATE', schema: 'public', table: 'processing_jobs' },
@@ -82,7 +85,7 @@ export function subscribeToConceptNodes(
 ): Unsubscribe {
   const client = createClient()
   const channel = client
-    .channel('kg:concept_nodes')
+    .channel(`kg:concept_nodes:${uid()}`)
     .on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'concept_nodes' },

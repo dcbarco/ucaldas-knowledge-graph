@@ -143,7 +143,7 @@ export async function POST(req: NextRequest) {
       authors:     JSON.parse((formData.get('authors') as string) || '[]'),
       abstract_es: formData.get('abstract_es') ?? null,
       abstract_en: formData.get('abstract_en') ?? null,
-      status:      'pending',
+      status:      'processing',
     })
     .select('id')
     .single()
@@ -173,7 +173,7 @@ export async function POST(req: NextRequest) {
   // 4. Create processing_job record
   await supabase.from('processing_jobs').insert({
     paper_id:    paperId,
-    status:      'pending',
+    status:      'queued',
     progress:    0,
     current_step: 'En cola',
   })

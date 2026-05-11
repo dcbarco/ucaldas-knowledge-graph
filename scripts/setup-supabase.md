@@ -28,15 +28,20 @@ In the Supabase dashboard:
 
 ## 3. Run Migrations
 
-In the Supabase dashboard go to **SQL Editor** and run each migration file in order:
+In the Supabase dashboard go to **SQL Editor → New query**.
+You must paste the **SQL content** of each file (not the filename itself).
 
-```
-supabase/migrations/0001_initial_schema.sql
-supabase/migrations/0002_concept_nodes.sql
-supabase/migrations/0003_realtime_setup.sql
+**Migration 1:** Open `supabase/migrations/001_initial.sql` in your editor, select all (`Ctrl+A`), copy, paste into SQL Editor, click **Run**.
+
+**Migration 2:** Paste the following and click **Run**:
+
+```sql
+ALTER PUBLICATION supabase_realtime ADD TABLE relations;
+ALTER PUBLICATION supabase_realtime ADD TABLE processing_jobs;
+ALTER PUBLICATION supabase_realtime ADD TABLE concept_nodes;
 ```
 
-Or use the Supabase CLI:
+Alternatively, use the Supabase CLI:
 
 ```bash
 supabase login
@@ -46,17 +51,20 @@ supabase db push
 
 ---
 
-## 4. Configure Realtime
+## 4. Configure Realtime (UI Method)
 
-Enable replication for the tables that need live updates:
+Enable replication for the tables that need live updates (if you didn't run the SQL in Step 3):
 
-1. Go to **Database → Replication**
-2. Under **Source**, click **0 tables** (or the current table count)
-3. Enable replication for these tables:
+1. Go to **Database → Publications**
+2. Click on the **supabase_realtime** publication
+3. Click **Edit** (or search for the tables section)
+4. Select/Toggle these tables:
    - `relations`
    - `processing_jobs`
    - `concept_nodes`
-4. Click **Save**
+5. Click **Save** (or **Update publication**)
+
+---
 
 ---
 
@@ -74,7 +82,7 @@ Then set up the storage policy:
 2. Click **New policy** → **For full customization**
 3. Policy name: `service-role-full-access`
 4. Allowed operations: SELECT, INSERT, UPDATE, DELETE
-5. Policy definition:
+5. Policy definition (copy ONLY the line inside, NOT the backticks):
    ```sql
    (auth.role() = 'service_role')
    ```

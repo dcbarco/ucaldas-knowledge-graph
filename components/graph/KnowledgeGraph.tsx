@@ -11,12 +11,12 @@ import { subscribeToApprovedRelations, subscribeToConceptNodes } from '@/lib/sup
 import type { RelationRow, ConceptNodeRow } from '@/lib/supabase/realtime'
 
 // ── Dynamic import: avoids SSR (uses canvas/window APIs) ──────────────────────
-type FGComponent = React.ComponentType<Record<string, unknown>>
-
+// ForceGraphClient wraps react-force-graph-2d with forwardRef so the ref
+// reaches the actual instance (needed for zoomToFit, centerAt, d3Force).
 const ForceGraph2D = dynamic(
-  () => import('react-force-graph-2d').then(m => m.default as unknown as FGComponent),
+  () => import('./ForceGraphClient'),
   { ssr: false, loading: () => null }
-) as FGComponent
+)
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -235,7 +235,7 @@ export default function KnowledgeGraph({
     <div ref={containerRef} className="w-full h-full">
       {dimensions.width > 0 && (
         <ForceGraph2D
-          ref={fgRef}
+          instanceRef={fgRef}
           graphData={graphData}
           width={dimensions.width}
           height={dimensions.height}

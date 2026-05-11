@@ -1,90 +1,145 @@
 // Paso 5 — Búsqueda de relaciones por similitud               [80%]
-// Búsqueda dual en pgvector:
-//   A) Similitud directa de embedding paper ↔ paper
-//   B) Papers que comparten concept_nodes en paper_concepts
-// Combina y deduplica. Filtra por SIMILARITY_THRESHOLD.
-
-import { log, mockDB } from '../lib/logger'
+import { supabase } from '../lib/supabase'
+import { log } from '../lib/logger'
 import type { ProgressUpdater, CandidateRelation } from '../lib/types'
 
-const delay = (ms: number) => new Promise(r => setTimeout(r, ms))
+const THRESHOLD    = parseFloat(process.env.SIMILARITY_THRESHOLD      ?? '0.72')
+const MAX_RELATIONS = parseInt(process.env.MAX_RELATIONS_PER_PAPER    ?? '10')
 
-const THRESHOLD = parseFloat(process.env.SIMILARITY_THRESHOLD ?? '0.72')
-const MAX_RELATIONS = parseInt(process.env.MAX_RELATIONS_PER_PAPER ?? '10')
+function cosineSimilarity(a: number[], b: number[]): number {
+  let dot = 0, normA = 0, normB = 0
+  for (let i = 0; i < a.length; i++) {
+    dot   += a[i] * b[i]
+    normA += a[i] * a[i]
+    normB += b[i] * b[i]
+  }
+  if (normA === 0 || normB === 0) return 0
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB))
+}
+
+function parseEmbedding(raw: unknown): number[] | null {
+  if (!raw) return null
+  const str = typeof raw === 'string' ? raw : JSON.stringify(raw)
+  try {
+    const parsed = JSON.parse(str.startsWith('[') ? str : `[${str}]`)
+    return Array.isArray(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
 
 export async function findRelations(
   paperId: string,
-  _embedding: number[],
+  embedding: number[],
   update: ProgressUpdater
 ): Promise<CandidateRelation[]> {
-  await update(72, 'Buscando papers similares por embedding (pgvector)')
+  await update(72, 'Buscando papers similares por embedding (JS cosine)')
 
-  // PRODUCCIÓN — Búsqueda A) por embedding:
-  // const { data: byEmbedding } = await supabase.rpc('match_papers_by_embedding', {
-  //   query_embedding: embedding,
-  //   match_threshold: THRESHOLD,
-  //   match_count: MAX_RELATIONS,
-  //   exclude_paper_id: paperId,
-  // })
-  // SQL equivalente:
-  //   SELECT p.id, p.title, 1 - (p.embedding <=> $1) AS similarity
-  //   FROM papers p
-  //   WHERE p.id != $2 AND p.status = 'ready'
-  //     AND 1 - (p.embedding <=> $1) > $3
-  //   ORDER BY similarity DESC LIMIT $4
-  mockDB(paperId, `rpc('match_papers_by_embedding', { threshold: ${THRESHOLD}, exclude: '${paperId}' })`)
-  await delay(600)
+  // Fetch all ready papers except the current one
+  const { data: papers, error } = await supabase
+    .from('papers')
+    .select('id, title, embedding')
+    .eq('status', 'ready')
+    .neq('id', paperId)
+
+  if (error) {
+    log(paperId, `Error fetching papers for similarity: ${error.message}`)
+    return []
+  }
+
+  const byEmbedding: CandidateRelation[] = []
+
+  for (const paper of papers ?? []) {
+    const vec = parseEmbedding(paper.embedding)
+    if (!vec || vec.length !== embedding.length) continue
+    const sim = cosineSimilarity(embedding, vec)
+    if (sim >= THRESHOLD) {
+      byEmbedding.push({
+        relatedPaperId:     paper.id,
+        relatedPaperTitle:  paper.title ?? paper.id,
+        similarity:         Math.round(sim * 1000) / 1000,
+        sharedConceptSlugs: [],
+        relation_type:      'semantic',
+      })
+    }
+  }
+
+  log(paperId, `Embedding similarity: ${byEmbedding.length} candidatos (umbral: ${THRESHOLD})`)
 
   await update(76, 'Buscando papers con conceptos compartidos en la wiki')
 
-  // PRODUCCIÓN — Búsqueda B) por concept_nodes compartidos:
-  // const { data: byConceptsRaw } = await supabase.rpc('match_papers_by_concepts', {
-  //   source_paper_id: paperId,
-  //   min_shared_concepts: 2,
-  // })
-  // SQL equivalente:
-  //   SELECT p.id, p.title, COUNT(*) AS shared_count,
-  //     ARRAY_AGG(cn.slug) AS shared_slugs
-  //   FROM paper_concepts pc1
-  //   JOIN paper_concepts pc2 ON pc2.concept_id = pc1.concept_id AND pc2.paper_id != $1
-  //   JOIN papers p ON p.id = pc2.paper_id
-  //   JOIN concept_nodes cn ON cn.id = pc1.concept_id
-  //   WHERE pc1.paper_id = $1
-  //   GROUP BY p.id, p.title HAVING COUNT(*) >= $2
-  mockDB(paperId, `rpc('match_papers_by_concepts', { source_paper_id: '${paperId}', min_shared: 2 })`)
-  await delay(500)
+  // Shared concepts via paper_concepts join
+  const { data: shared } = await supabase
+    .from('paper_concepts')
+    .select('concept_id, concept_nodes(slug)')
+    .eq('paper_id', paperId)
 
-  // Mock: simula 3 relaciones candidatas
-  const allMock: CandidateRelation[] = [
-    {
-      relatedPaperId:     'paper-mock-1',
-      relatedPaperTitle:  'Tecnología IoT en agricultura de precisión',
-      similarity:         0.87,
-      sharedConceptSlugs: ['metodologia-mixta', 'tecnologia-rural'],
-      relation_type:      'methodological',
-    },
-    {
-      relatedPaperId:     'paper-mock-2',
-      relatedPaperTitle:  'Resiliencia comunitaria ante eventos climáticos en Caldas',
-      similarity:         0.79,
-      sharedConceptSlugs: ['comunidades-rurales', 'sostenibilidad'],
-      relation_type:      'thematic',
-    },
-    {
-      relatedPaperId:     'paper-mock-3',
-      relatedPaperTitle:  'Redes sociales y capital social en zonas rurales',
-      similarity:         0.74,
-      sharedConceptSlugs: ['analisis-redes-sociales'],
-      relation_type:      'semantic',
-    },
-  ]
-  const mockRelations = allMock.filter(r => r.similarity >= THRESHOLD).slice(0, MAX_RELATIONS)
+  const myConcepts = new Map<string, string>()  // concept_id → slug
+  for (const row of shared ?? []) {
+    const slug = (row.concept_nodes as unknown as { slug: string } | null)?.slug
+    if (slug) myConcepts.set(row.concept_id, slug)
+  }
 
-  await update(80, `${mockRelations.length} relaciones candidatas encontradas`)
-  log(paperId, `Relaciones candidatas: ${mockRelations.length} (umbral: ${THRESHOLD})`)
-  mockRelations.forEach(r =>
+  const { data: otherPaperConcepts } = myConcepts.size > 0
+    ? await supabase
+        .from('paper_concepts')
+        .select('paper_id, concept_id, papers(id, title, status)')
+        .in('concept_id', [...myConcepts.keys()])
+        .neq('paper_id', paperId)
+    : { data: [] }
+
+  // Group by paper_id to count shared concepts
+  const sharedMap = new Map<string, { title: string; slugs: string[] }>()
+  for (const row of otherPaperConcepts ?? []) {
+    const p = row.papers as unknown as { id: string; title: string; status: string } | null
+    if (!p || p.status !== 'ready') continue
+    const slug = myConcepts.get(row.concept_id)
+    if (!slug) continue
+    const existing = sharedMap.get(row.paper_id)
+    if (existing) {
+      existing.slugs.push(slug)
+    } else {
+      sharedMap.set(row.paper_id, { title: p.title ?? row.paper_id, slugs: [slug] })
+    }
+  }
+
+  // Merge concept-sharing results into byEmbedding list
+  const resultMap = new Map<string, CandidateRelation>()
+  for (const rel of byEmbedding) resultMap.set(rel.relatedPaperId, rel)
+
+  for (const [pid, { title, slugs }] of sharedMap.entries()) {
+    if (slugs.length < 2) continue  // need at least 2 shared concepts
+    const existing = resultMap.get(pid)
+    if (existing) {
+      existing.sharedConceptSlugs = slugs
+      // Promote type based on concept overlap
+      if (existing.relation_type === 'semantic' && slugs.length >= 3) {
+        existing.relation_type = 'thematic'
+      }
+    } else {
+      // Concept-only match (below embedding threshold) — score based on count
+      const sim = Math.min(0.70 + slugs.length * 0.02, THRESHOLD + 0.05)
+      if (sim >= THRESHOLD) {
+        resultMap.set(pid, {
+          relatedPaperId:     pid,
+          relatedPaperTitle:  title,
+          similarity:         Math.round(sim * 1000) / 1000,
+          sharedConceptSlugs: slugs,
+          relation_type:      'thematic',
+        })
+      }
+    }
+  }
+
+  const candidates = [...resultMap.values()]
+    .sort((a, b) => b.similarity - a.similarity)
+    .slice(0, MAX_RELATIONS)
+
+  await update(80, `${candidates.length} relaciones candidatas encontradas`)
+  log(paperId, `Relaciones candidatas: ${candidates.length} (umbral: ${THRESHOLD})`)
+  candidates.forEach(r =>
     log(paperId, `  → "${r.relatedPaperTitle}" [${r.relation_type}] (sim: ${r.similarity})`)
   )
 
-  return mockRelations
+  return candidates
 }

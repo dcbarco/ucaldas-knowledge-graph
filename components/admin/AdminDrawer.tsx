@@ -12,7 +12,7 @@ import type { KnowledgeGraphHandle } from '@/components/graph/KnowledgeGraph'
 const CORNER_SEQUENCE = ['tl', 'tr', 'br', 'bl'] as const
 type Corner = typeof CORNER_SEQUENCE[number]
 const SEQUENCE_TIMEOUT_MS = 5_000
-const MOCK_PIN = '123456'
+const CORRECT_PIN = process.env.NEXT_PUBLIC_ADMIN_PIN ?? '123456'
 
 type Tab = 'upload' | 'relations' | 'wiki' | 'activity'
 
@@ -75,12 +75,25 @@ export default function AdminDrawer({ lang, graphHandle }: AdminDrawerProps) {
     }
   }, [])
 
+  // Keyboard shortcut: Ctrl+Shift+A → skip gesture, go straight to PIN
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.ctrlKey && e.shiftKey && e.key === 'A') {
+        setPhase('pin')
+        setPin('')
+        setPinError(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   // PIN digit entry
   useEffect(() => {
     if (phase !== 'pin') return
     if (pin.length < 6) return
 
-    if (pin === MOCK_PIN) {
+    if (pin === CORRECT_PIN) {
       setPhase('open')
       setPin('')
     } else {
@@ -121,14 +134,15 @@ export default function AdminDrawer({ lang, graphHandle }: AdminDrawerProps) {
       {(['tl', 'tr', 'br', 'bl'] as Corner[]).map(corner => (
         <div
           key={corner}
-          className="fixed z-20 w-20 h-20"
+          className="fixed z-50 w-20 h-20"
           style={{
             top:    corner.startsWith('t') ? 0 : undefined,
             bottom: corner.startsWith('b') ? 0 : undefined,
             left:   corner.endsWith('l')   ? 0 : undefined,
             right:  corner.endsWith('r')   ? 0 : undefined,
+            cursor: 'default',
           }}
-          onPointerDown={() => handleCornerTap(corner)}
+          onPointerDown={(e) => { e.stopPropagation(); handleCornerTap(corner) }}
         />
       ))}
 
@@ -177,15 +191,15 @@ export default function AdminDrawer({ lang, graphHandle }: AdminDrawerProps) {
 
               {/* Keypad */}
               <div className="grid grid-cols-3 gap-3">
-                {['1','2','3','4','5','6','7','8','9','','0','⌫'].map((key, i) => {
-                  if (key === '') return <div key={i} />
+                {['1','2','3','4','5','6','7','8','9','','0','⌫'].map((digit, i) => {
+                  if (digit === '') return <div key={`empty-${i}`} />
                   return (
                     <button
-                      key={key}
-                      onClick={() => key === '⌫' ? handlePinDelete() : handlePinKey(key)}
+                      key={`digit-${digit}-${i}`}
+                      onClick={() => digit === '⌫' ? handlePinDelete() : handlePinKey(digit)}
                       className="h-12 rounded-2xl bg-white/10 hover:bg-white/20 active:scale-95 text-white text-lg font-medium transition-all"
                     >
-                      {key}
+                      {digit}
                     </button>
                   )
                 })}

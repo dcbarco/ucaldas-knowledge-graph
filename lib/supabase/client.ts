@@ -1,12 +1,16 @@
-import { createClient as supabaseCreateClient } from '@supabase/supabase-js'
+import { createClient as supabaseCreateClient, type SupabaseClient } from '@supabase/supabase-js'
 
-// Browser-side Supabase client — uses anon key, respects RLS
-// Safe to call from 'use client' components
-export function createClient() {
-  return supabaseCreateClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+// Singleton — prevents multiple GoTrueClient instances in the same browser context
+let _client: SupabaseClient | null = null
+
+export function createClient(): SupabaseClient {
+  if (!_client) {
+    _client = supabaseCreateClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
+  }
+  return _client
 }
 
 // Returns true when Supabase env vars are configured
