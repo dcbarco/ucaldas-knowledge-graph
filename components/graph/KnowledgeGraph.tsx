@@ -7,7 +7,7 @@ import type { KGNodeData, KGLinkData } from '@/lib/data/mock'
 import { MOCK_NODES, MOCK_LINKS, DEPT_COLORS } from '@/lib/data/mock'
 import { useMyceliumAnimation } from './MyceliumAnimation'
 import { isSupabaseConfigured } from '@/lib/supabase/client'
-import { subscribeToApprovedRelations, subscribeToConceptNodes } from '@/lib/supabase/realtime'
+import { subscribeToApprovedRelations, subscribeToConceptNodes, subscribeToReadyPapers } from '@/lib/supabase/realtime'
 import type { RelationRow, ConceptNodeRow } from '@/lib/supabase/realtime'
 
 // ── Dynamic import: avoids SSR (uses canvas/window APIs) ──────────────────────
@@ -91,9 +91,8 @@ export default function KnowledgeGraph({
   }, [handleRef, triggerGrowth])
 
   // ── Fetch real graph data from Supabase ────────────────────────────────────
-  useEffect(() => {
+  const refetchGraph = useCallback(() => {
     if (!isSupabaseConfigured()) return
-
     fetch('/api/papers')
       .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
       .then((data: { nodes: KGNodeData[]; links: KGLinkData[]; stats: { papers: number; relations: number; concepts: number } }) => {
@@ -106,6 +105,15 @@ export default function KnowledgeGraph({
       })
       .catch(err => console.warn('[KnowledgeGraph] Could not load real data, using mock:', err))
   }, [onStatsChange])
+
+  useEffect(() => { refetchGraph() }, [refetchGraph])
+
+  // ── Realtime: paper finishes processing → refetch full graph ──────────────
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return
+    const unsub = subscribeToReadyPapers(() => { refetchGraph() })
+    return unsub
+  }, [refetchGraph])
 
   // ── Realtime: new approved relations → add to graph + animate ─────────────
   useEffect(() => {

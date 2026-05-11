@@ -79,6 +79,34 @@ export function subscribeToProcessingJobs(
   return () => { client.removeChannel(channel) }
 }
 
+// ── Subscribe to papers becoming ready (status='ready') ─────────────────────
+export function subscribeToReadyPapers(
+  onReady: (paperId: string) => void
+): Unsubscribe {
+  const client = createClient()
+  const channel = client
+    .channel(`kg:papers:${uid()}`)
+    .on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'papers' },
+      (payload) => {
+        const row = payload.new as { id: string; status: string }
+        if (row.status === 'ready') onReady(row.id)
+      }
+    )
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'papers' },
+      (payload) => {
+        const row = payload.new as { id: string; status: string }
+        if (row.status === 'ready') onReady(row.id)
+      }
+    )
+    .subscribe()
+
+  return () => { client.removeChannel(channel) }
+}
+
 // ── Subscribe to new/updated concept_nodes ───────────────────────────────────
 export function subscribeToConceptNodes(
   onChange: (node: ConceptNodeRow, eventType: 'INSERT' | 'UPDATE') => void

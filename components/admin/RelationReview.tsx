@@ -171,10 +171,16 @@ export default function RelationReview({ lang, graphHandle }: RelationReviewProp
   async function resolve(id: string, status: 'approved' | 'rejected') {
     // Call real API when Supabase is configured
     if (isSupabaseConfigured()) {
+      const action = status === 'approved' ? 'approve' : 'reject'
       try {
-        await fetch(`/api/relations/${id}/${status}`, { method: 'POST' })
+        const res = await fetch(`/api/relations/${id}/${action}`, { method: 'POST' })
+        if (!res.ok) {
+          console.error('[RelationReview] resolve failed:', res.status, await res.text())
+          return
+        }
       } catch (err) {
         console.error('[RelationReview] resolve error:', err)
+        return
       }
     }
     if (status === 'approved') {
