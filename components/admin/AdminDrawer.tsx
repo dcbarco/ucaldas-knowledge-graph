@@ -6,6 +6,7 @@ import UploadPaper from './UploadPaper'
 import RelationReview from './RelationReview'
 import WikiExplorer from './WikiExplorer'
 import ActivityLog from './ActivityLog'
+import ManagePapers from './ManagePapers'
 import type { KnowledgeGraphHandle } from '@/components/graph/KnowledgeGraph'
 
 // Corner tap sequence: top-left → top-right → bottom-right → bottom-left
@@ -14,7 +15,7 @@ type Corner = typeof CORNER_SEQUENCE[number]
 const SEQUENCE_TIMEOUT_MS = 5_000
 const CORRECT_PIN = process.env.NEXT_PUBLIC_ADMIN_PIN ?? '123456'
 
-type Tab = 'upload' | 'relations' | 'wiki' | 'activity'
+type Tab = 'upload' | 'relations' | 'wiki' | 'activity' | 'manage'
 
 interface Tab_ {
   id: Tab
@@ -25,6 +26,7 @@ interface Tab_ {
 
 const TABS: Tab_[] = [
   { id: 'upload',    icon: '📤', label_es: 'Subir',       label_en: 'Upload' },
+  { id: 'manage',    icon: '🗑',  label_es: 'Gestión',     label_en: 'Manage' },
   { id: 'relations', icon: '🔗', label_es: 'Relaciones',  label_en: 'Relations' },
   { id: 'wiki',      icon: '🧠', label_es: 'Wiki',        label_en: 'Wiki' },
   { id: 'activity',  icon: '📋', label_es: 'Actividad',   label_en: 'Activity' },
@@ -289,6 +291,7 @@ export default function AdminDrawer({ lang, graphHandle }: AdminDrawerProps) {
                     transition={{ duration: 0.15 }}
                   >
                     {activeTab === 'upload'    && <UploadPaper    lang={lang} />}
+                    {activeTab === 'manage'    && <ManagePapers   lang={lang} />}
                     {activeTab === 'relations' && <RelationReview lang={lang} graphHandle={graphHandle} />}
                     {activeTab === 'wiki'      && <WikiExplorer   lang={lang} />}
                     {activeTab === 'activity'  && <ActivityLog    lang={lang} />}
