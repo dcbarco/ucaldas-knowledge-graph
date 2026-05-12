@@ -102,16 +102,19 @@ interface RelationReviewProps {
 }
 
 export default function RelationReview({ lang, graphHandle }: RelationReviewProps) {
-  const [relations, setRelations] = useState<ProposedRelation[]>(MOCK_RELATIONS)
+  // Start with mocks only when Supabase isn't configured. Otherwise start
+  // empty and replace with real data once the fetch completes — never mix
+  // mock IDs (like "r3") with real UUIDs, since the API only accepts UUIDs.
+  const [relations, setRelations] = useState<ProposedRelation[]>(
+    isSupabaseConfigured() ? [] : MOCK_RELATIONS
+  )
   const [expanded, setExpanded] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(isSupabaseConfigured())
 
   // Fetch real proposed relations from Supabase when configured
   useEffect(() => {
     if (!isSupabaseConfigured()) return
-    setLoading(true)
 
-    // Use browser Supabase client with join on papers table
     import('@/lib/supabase/client').then(({ createClient }) => {
       const supabase = createClient()
       supabase
@@ -126,9 +129,12 @@ export default function RelationReview({ lang, graphHandle }: RelationReviewProp
         .order('created_at', { ascending: false })
         .then(({ data, error }) => {
           setLoading(false)
-          if (error || !data?.length) return
+          if (error) {
+            console.error('[RelationReview] fetch error:', error.message)
+            return
+          }
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const mapped: ProposedRelation[] = (data as any[]).map(r => ({
+          const mapped: ProposedRelation[] = (data ?? []).map((r: any) => ({
             id: r.id,
             nodeIds: [r.paper_a_id, r.paper_b_id] as [string, string],
             relationType: r.relation_type,
