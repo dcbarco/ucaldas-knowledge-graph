@@ -32,6 +32,7 @@ export default function ManagePapers({ lang }: ManagePapersProps) {
   const [loading, setLoading] = useState(true)
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [reprocessingId, setReprocessingId] = useState<string | null>(null)
   const [resetPhase, setResetPhase] = useState<'idle' | 'confirm1' | 'confirm2' | 'running' | 'done'>('idle')
   const [resetResult, setResetResult] = useState<{ papers: number; concepts: number; storage: number } | null>(null)
   const [resetError, setResetError] = useState<string | null>(null)
@@ -43,6 +44,8 @@ export default function ManagePapers({ lang }: ManagePapersProps) {
     delete:       lang === 'es' ? 'Borrar'                           : 'Delete',
     confirm:      lang === 'es' ? '¿Confirmar?'                      : 'Confirm?',
     deleting:     lang === 'es' ? 'Borrando...'                      : 'Deleting...',
+    reprocess:    lang === 'es' ? 'Reprocesar'                       : 'Reprocess',
+    reprocessing: lang === 'es' ? 'Reprocesando...'                  : 'Reprocessing...',
     danger:       lang === 'es' ? 'Zona Peligrosa'                   : 'Danger Zone',
     resetBtn:     lang === 'es' ? 'Reset completo de la wiki'        : 'Full wiki reset',
     resetWarn:    lang === 'es' ? 'Borra TODOS los papers, conceptos y PDFs. No se puede deshacer.' : 'Wipes ALL papers, concepts and PDFs. Cannot be undone.',
@@ -95,6 +98,23 @@ export default function ManagePapers({ lang }: ManagePapersProps) {
     }
   }
 
+  async function reprocessPaper(id: string) {
+    setReprocessingId(id)
+    try {
+      const res = await fetch(`/api/papers/${id}/reprocess`, { method: 'POST' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        console.error('[ManagePapers] reprocess failed:', res.status, body)
+        return
+      }
+      setPapers(prev => prev.map(p =>
+        p.id === id ? { ...p, status: 'processing' } : p
+      ))
+    } finally {
+      setReprocessingId(null)
+    }
+  }
+
   async function executeReset() {
     setResetPhase('running')
     setResetError(null)
@@ -140,8 +160,9 @@ export default function ManagePapers({ lang }: ManagePapersProps) {
             const dept = p.department ?? ''
             const color = DEPT_COLORS[dept] ?? '#64748B'
             const badge = STATUS_BADGE[p.status] ?? STATUS_BADGE.processing
-            const isConfirming = confirmId === p.id
-            const isDeleting   = deletingId === p.id
+            const isConfirming  = confirmId === p.id
+            const isDeleting    = deletingId === p.id
+            const isReprocessing = reprocessingId === p.id
 
             return (
               <div
@@ -161,17 +182,27 @@ export default function ManagePapers({ lang }: ManagePapersProps) {
                     {dept && <span className="text-[10px] text-gray-500 truncate">{dept}</span>}
                   </div>
                 </div>
-                <button
-                  onClick={() => isConfirming ? deletePaper(p.id) : setConfirmId(p.id)}
-                  disabled={isDeleting}
-                  className={`text-[11px] px-2 py-1 rounded-md transition-colors flex-shrink-0 disabled:opacity-50 ${
-                    isConfirming
-                      ? 'bg-red-500/30 text-red-300 hover:bg-red-500/50'
-                      : 'bg-white/5 text-gray-400 hover:bg-red-500/20 hover:text-red-400'
-                  }`}
-                >
-                  {isDeleting ? labels.deleting : isConfirming ? labels.confirm : `🗑 ${labels.delete}`}
-                </button>
+                <div className="flex flex-col gap-1 flex-shrink-0">
+                  <button
+                    onClick={() => reprocessPaper(p.id)}
+                    disabled={isReprocessing || isDeleting}
+                    className="text-[11px] px-2 py-1 rounded-md transition-colors disabled:opacity-50 bg-white/5 text-gray-400 hover:bg-cyan-500/20 hover:text-cyan-400"
+                    title={labels.reprocess}
+                  >
+                    {isReprocessing ? labels.reprocessing : `↻ ${labels.reprocess}`}
+                  </button>
+                  <button
+                    onClick={() => isConfirming ? deletePaper(p.id) : setConfirmId(p.id)}
+                    disabled={isDeleting || isReprocessing}
+                    className={`text-[11px] px-2 py-1 rounded-md transition-colors disabled:opacity-50 ${
+                      isConfirming
+                        ? 'bg-red-500/30 text-red-300 hover:bg-red-500/50'
+                        : 'bg-white/5 text-gray-400 hover:bg-red-500/20 hover:text-red-400'
+                    }`}
+                  >
+                    {isDeleting ? labels.deleting : isConfirming ? labels.confirm : `🗑 ${labels.delete}`}
+                  </button>
+                </div>
               </div>
             )
           })

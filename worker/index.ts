@@ -27,9 +27,10 @@ redisConnection.on('error',   (err) => console.error('[worker] Redis error:', er
 
 // Status según el progreso del pipeline
 function progressToStatus(p: number): string {
-  if (p <= 10) return 'extracting'
-  if (p <= 50) return 'embedding'
-  if (p <= 65) return 'wiki_update'
+  if (p >= 100) return 'done'
+  if (p <= 10)  return 'extracting'
+  if (p <= 50)  return 'embedding'
+  if (p <= 65)  return 'wiki_update'
   return 'relating'
 }
 

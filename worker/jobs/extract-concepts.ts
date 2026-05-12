@@ -15,6 +15,79 @@ const FALLBACK: ExtractedConcepts = {
   field: 'Investigación',
 }
 
+// Models tried in order — first one that returns valid concepts wins.
+// Free tier models on OpenRouter are flaky; chaining gives resilience.
+const MODEL_CHAIN = [
+  process.env.MODEL_STANDARD ?? 'meta-llama/llama-3.3-70b-instruct:free',
+  'deepseek/deepseek-chat-v3-0324:free',
+  'mistralai/mistral-7b-instruct:free',
+  'google/gemma-2-9b-it:free',
+]
+
+function extractJSON(raw: string): string {
+  let s = raw.replace(/```json\n?|\n?```/g, '').trim()
+  const first = s.indexOf('{')
+  const last  = s.lastIndexOf('}')
+  if (first >= 0 && last > first) s = s.slice(first, last + 1)
+  return s
+}
+
+function isValidConcepts(c: Partial<ExtractedConcepts> | null): c is ExtractedConcepts {
+  return !!c
+    && typeof c.summary_es === 'string'
+    && Array.isArray(c.methods)
+    && Array.isArray(c.themes)
+    && Array.isArray(c.keywords)
+    && ((c.methods.length + c.themes.length) > 0)
+}
+
+async function tryModel(
+  client: OpenAI,
+  model: string,
+  system: string,
+  user: string,
+  paperId: string
+): Promise<ExtractedConcepts | null> {
+  try {
+    const res = await client.chat.completions.create({
+      model,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user',   content: user },
+      ],
+      temperature: 0.1,
+      max_tokens: 700,
+    })
+
+    const raw = res.choices[0]?.message?.content ?? ''
+    if (!raw.trim()) {
+      log(paperId, `  [LLM] "${model}" devolvió respuesta vacía`)
+      return null
+    }
+
+    const cleaned = extractJSON(raw)
+    let parsed: Partial<ExtractedConcepts>
+    try {
+      parsed = JSON.parse(cleaned) as Partial<ExtractedConcepts>
+    } catch (e) {
+      log(paperId, `  [LLM] "${model}" JSON inválido — preview: ${cleaned.slice(0, 200)}`)
+      log(paperId, `  [LLM] parse error: ${e instanceof Error ? e.message : String(e)}`)
+      return null
+    }
+
+    if (!isValidConcepts(parsed)) {
+      log(paperId, `  [LLM] "${model}" JSON válido pero conceptos vacíos: ${JSON.stringify(parsed).slice(0, 200)}`)
+      return null
+    }
+
+    log(paperId, `  [LLM] ✓ "${model}" devolvió ${parsed.methods.length} métodos, ${parsed.themes.length} temas`)
+    return parsed
+  } catch (err) {
+    log(paperId, `  [LLM] "${model}" error de red/API: ${err instanceof Error ? err.message : String(err)}`)
+    return null
+  }
+}
+
 export async function extractConcepts(
   paperId: string,
   fullText: string,
@@ -34,44 +107,47 @@ export async function extractConcepts(
     },
   })
 
-  const system = `Eres un analizador de papers académicos. Responde ÚNICAMENTE con JSON válido, sin markdown ni explicaciones.`
-  const user = `Analiza este texto de un paper académico y responde con este JSON exacto:
-{
-  "summary_es": "resumen en español en 2-3 oraciones",
-  "summary_en": "summary in English in 2-3 sentences",
-  "methods": ["método1", "método2"],
-  "themes": ["tema1", "tema2"],
-  "keywords": ["kw1", "kw2", "kw3"],
-  "field": "campo académico principal"
-}
+  const system = `Eres un analizador de papers académicos. Lee el texto y extrae conceptos clave.
+Responde ÚNICAMENTE con un JSON válido — sin markdown, sin texto antes ni después, sin explicaciones.
+El JSON debe tener exactamente esta forma:
+{"summary_es": "...", "summary_en": "...", "methods": [...], "themes": [...], "keywords": [...], "field": "..."}`
 
-TEXTO:
+  const user = `Analiza este paper académico y extrae:
+- summary_es: resumen en español (2-3 oraciones)
+- summary_en: summary in English (2-3 sentences)
+- methods: array de 2-5 metodologías o técnicas usadas (ej: "machine learning", "encuesta cualitativa")
+- themes: array de 2-5 temas principales (ej: "cambio climático", "salud mental")
+- keywords: array de 3-7 palabras clave
+- field: campo académico principal (ej: "Medicina", "Biología", "Ciencias Sociales")
+
+REGLAS IMPORTANTES:
+- methods y themes DEBEN tener al menos 1 elemento cada uno. NUNCA devuelvas arrays vacíos.
+- Si el texto está en inglés, traduce los conceptos al español para methods/themes/keywords.
+
+TEXTO DEL PAPER:
 ${truncated}`
 
-  let concepts = FALLBACK
-  try {
-    const res = await client.chat.completions.create({
-      model: process.env.MODEL_STANDARD ?? 'meta-llama/llama-3.3-70b-instruct:free',
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user',   content: user },
-      ],
-      temperature: 0.1,
-      max_tokens: 600,
-    })
-    const raw = (res.choices[0].message.content ?? '').replace(/```json\n?|\n?```/g, '').trim()
-    concepts = JSON.parse(raw) as ExtractedConcepts
-  } catch (err) {
-    log(paperId, `LLM/parse error, usando fallback: ${err}`)
+  let concepts: ExtractedConcepts | null = null
+
+  for (const model of MODEL_CHAIN) {
+    concepts = await tryModel(client, model, system, user, paperId)
+    if (concepts) break
+  }
+
+  if (!concepts) {
+    log(paperId, `❌ Todos los modelos fallaron — usando FALLBACK vacío`)
+    concepts = FALLBACK
   }
 
   await update(30, 'Conceptos extraídos — guardando resumen')
-  await supabase.from('papers').update({
+  const { error } = await supabase.from('papers').update({
     abstract_es: concepts.summary_es,
     abstract_en: concepts.summary_en,
     concepts:    { methods: concepts.methods, themes: concepts.themes, keywords: concepts.keywords },
   }).eq('id', paperId)
 
-  log(paperId, `Conceptos: ${concepts.methods.length} métodos, ${concepts.themes.length} temas, ${concepts.keywords.length} keywords`)
+  if (error) log(paperId, `  [DB] error guardando concepts en papers: ${error.message}`)
+
+  log(paperId, `Conceptos finales: ${concepts.methods.length} métodos, ${concepts.themes.length} temas, ${concepts.keywords.length} keywords`)
   return concepts
 }
