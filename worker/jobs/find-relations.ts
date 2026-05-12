@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase'
 import { log } from '../lib/logger'
 import type { ProgressUpdater, CandidateRelation } from '../lib/types'
 
-const THRESHOLD    = parseFloat(process.env.SIMILARITY_THRESHOLD      ?? '0.72')
+const THRESHOLD    = parseFloat(process.env.SIMILARITY_THRESHOLD      ?? '0.5')
 const MAX_RELATIONS = parseInt(process.env.MAX_RELATIONS_PER_PAPER    ?? '10')
 
 function cosineSimilarity(a: number[], b: number[]): number {

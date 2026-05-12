@@ -41,17 +41,19 @@ export async function updateWiki(
       .maybeSingle()
 
     if (existing) {
-      await supabase.from('concept_nodes')
+      const { error: updErr } = await supabase.from('concept_nodes')
         .update({ paper_count: existing.paper_count + 1 })
         .eq('id', existing.id)
+      if (updErr) log(paperId, `  [WIKI][ERR] update concept_nodes: ${updErr.message}`)
 
-      await supabase.from('paper_concepts')
+      const { error: pcErr } = await supabase.from('paper_concepts')
         .upsert({ paper_id: paperId, concept_id: existing.id, relevance: 0.8 }, { onConflict: 'paper_id,concept_id' })
+      if (pcErr) log(paperId, `  [WIKI][ERR] upsert paper_concepts: ${pcErr.message}`)
 
       log(paperId, `  [WIKI] actualizado: "${term}"`)
       updated.push(term)
     } else {
-      const { data: newNode } = await supabase
+      const { data: newNode, error: insErr } = await supabase
         .from('concept_nodes')
         .insert({
           slug,
@@ -64,10 +66,14 @@ export async function updateWiki(
         .select('id')
         .single()
 
-      if (newNode) {
-        await supabase.from('paper_concepts')
-          .insert({ paper_id: paperId, concept_id: newNode.id, relevance: 0.75 })
+      if (insErr || !newNode) {
+        log(paperId, `  [WIKI][ERR] insert concept_node "${term}" (slug=${slug}): ${insErr?.message ?? 'no row returned'}`)
+        continue
       }
+
+      const { error: pcErr } = await supabase.from('paper_concepts')
+        .insert({ paper_id: paperId, concept_id: newNode.id, relevance: 0.75 })
+      if (pcErr) log(paperId, `  [WIKI][ERR] insert paper_concepts: ${pcErr.message}`)
 
       log(paperId, `  [WIKI] creado: "${term}" (${type})`)
       created.push(term)
